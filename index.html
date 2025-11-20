@@ -1,1 +1,247 @@
 
+<!doctype html>
+<html lang="ur">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ubaid's TikTok Downloader</title>
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --accent:#06b6d4; --muted:#9aa4b2; --white:#e6eef6;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
+    body{background:linear-gradient(180deg,#071025 0%, var(--bg) 100%); color:var(--white); display:flex; align-items:center; justify-content:center; padding:24px;}
+    .wrap{width:100%; max-width:920px;}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; padding:22px; box-shadow: 0 6px 20px rgba(2,6,23,0.6); border:1px solid rgba(255,255,255,0.03);}
+    h1{margin:0 0 8px 0; font-size:20px;}
+    p.lead{margin:0 0 18px 0; color:var(--muted);}
+    label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px;}
+    input[type="text"]{width:100%; padding:12px 14px; border-radius:10px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:var(--white); box-sizing:border-box; font-size:15px;}
+    .row{display:flex; gap:12px; margin-top:12px;}
+    button{background:var(--accent); border:none; color:#04202a; font-weight:700; padding:10px 14px; border-radius:10px; cursor:pointer;}
+    button.secondary{background:transparent; border:1px solid rgba(255,255,255,0.06); color:var(--white); font-weight:600;}
+    .hint{font-size:13px; color:var(--muted); margin-top:10px;}
+    .log{margin-top:14px; padding:12px; border-radius:10px; background:rgba(0,0,0,0.25); color:var(--white); font-size:13px; min-height:48px;}
+    .video-preview{margin-top:14px; border-radius:10px; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center; min-height:120px;}
+    .small{font-size:12px; color:var(--muted);}
+    footer{margin-top:12px; font-size:12px; color:var(--muted);}
+    .advanced{margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;}
+    .spinner{width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,0.12);border-top-color:var(--accent); animation:spin 1s linear infinite; display:inline-block; vertical-align:middle;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .danger{color:#ff9aa2}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" role="main">
+      <h1>Ubaid TikTok Video Downloader — Demo</h1>
+      <p class="lead">TikTok video link paste karo. Backend endpoint chahiye jo video without watermark return kare. Agar backend nahi hai to "Mock Test" se sample video save karke dekho.</p>
+
+      <label for="tiktokUrl">TikTok Link</label>
+      <input id="tiktokUrl" type="text" placeholder="https://www.tiktok.com/@user/video/12345..." />
+
+      <div class="row">
+        <button id="downloadBtn">Download (requires backend)</button>
+        <button class="secondary" id="mockBtn">Mock Test (no backend)</button>
+        <button class="secondary" id="clearBtn">Clear</button>
+      </div>
+
+      <div class="advanced">
+        <div class="small">Backend endpoint:</div>
+        <input id="backendInput" type="text" value="https://yourdomain.com/api/download?url=" style="flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--white)" />
+      </div>
+
+      <div class="log" id="log">Status: ready</div>
+
+      <div class="video-preview" id="preview">
+        <div class="small">Video preview will appear here after backend returns the video or when using mock test.</div>
+      </div>
+
+      <footer>
+        <div class="small">Steps: 1) Paste TikTok link → 2) Set backend endpoint above (replace with your deployed API) → 3) Click Download.</div>
+        <div class="small danger">Note: If backend not deployed, use Mock Test to see UI behavior only.</div>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    /*********************************************************************
+     * IMPORTANT (READ):
+     * - This frontend calls a backend that must accept a GET parameter "url".
+     * - The backend should either:
+     *    A) Respond with the video file bytes (Content-Type: video/*), OR
+     *    B) Respond with JSON { "downloadUrl": "https://..." } (a direct URL to the video file)
+     * - Update the "Backend endpoint" input with your actual backend URL before clicking Download.
+     *
+     * Example backend URL (replace with your real deployed API):
+     *   https://yourdomain.com/api/download?url=
+     *
+     * The code below tries to handle both responses.
+     *********************************************************************/
+
+    const $url = document.getElementById('tiktokUrl');
+    const $download = document.getElementById('downloadBtn');
+    const $mock = document.getElementById('mockBtn');
+    const $clear = document.getElementById('clearBtn');
+    const $log = document.getElementById('log');
+    const $preview = document.getElementById('preview');
+    const $backend = document.getElementById('backendInput');
+
+    function log(text, error=false){
+      $log.innerHTML = (error? '<strong style="color:#ff9aa2">Error:</strong> ' : '') + text;
+    }
+
+    function setLoading(on){
+      if(on){
+        $download.disabled = true;
+        $download.innerHTML = '<span class="spinner"></span> Processing...';
+      } else {
+        $download.disabled = false;
+        $download.innerHTML = 'Download (requires backend)';
+      }
+    }
+
+    async function downloadFromBackend(){
+      const turl = $url.value.trim();
+      const backendBase = $backend.value.trim();
+      if(!turl){
+        log('Please paste a TikTok link first.', true); return;
+      }
+      if(!backendBase || !backendBase.includes('http')){
+        log('Please enter a valid backend endpoint URL in the box above.', true); return;
+      }
+
+      // Build backend request
+      const api = backendBase + encodeURIComponent(turl);
+      log('Requesting backend: ' + api);
+      setLoading(true);
+      $preview.innerHTML = '<div class="small">Waiting for backend response...</div>';
+
+      try {
+        const resp = await fetch(api, { method: 'GET' });
+
+        // If backend returns JSON containing downloadUrl
+        const contentType = resp.headers.get('content-type') || '';
+        if(contentType.includes('application/json')){
+          const data = await resp.json();
+          if(data.downloadUrl){
+            log('Backend returned download URL. Starting download...');
+            await fetchAndSaveFile(data.downloadUrl);
+            setLoading(false);
+            return;
+          } else {
+            log('Backend returned JSON but missing "downloadUrl". See console for details.', true);
+            console.error('Backend JSON:', data);
+            setLoading(false);
+            return;
+          }
+        }
+
+        // If backend directly returned file bytes (video)
+        if(contentType.startsWith('video/') || contentType.indexOf('octet-stream') !== -1){
+          const blob = await resp.blob();
+          const filename = suggestFilenameFromResponse(resp) || 'tiktok_video.mp4';
+          saveBlob(blob, filename);
+          showPreviewBlob(blob);
+          log('Download ready — saved as ' + filename);
+          setLoading(false);
+          return;
+        }
+
+        // Otherwise try to parse as text and see if it contains a URL
+        const text = await resp.text();
+        // crude check: if looks like a URL
+        const maybeUrl = (text.match(/https?:\/\/[^\s'"]+/) || [null])[0];
+        if(maybeUrl){
+          log('Backend returned a URL in response body. Starting download...');
+          await fetchAndSaveFile(maybeUrl);
+          setLoading(false);
+          return;
+        }
+
+        log('Backend response format not recognized. Check backend implementation. See console for details.', true);
+        console.log('Backend raw response:', text);
+        setLoading(false);
+
+      } catch (err){
+        console.error(err);
+        log('Network or CORS error. Check browser console and backend CORS. ' + (err.message || ''), true);
+        setLoading(false);
+      }
+    }
+
+    // Helper: fetch a file URL and save
+    async function fetchAndSaveFile(url){
+      log('Fetching file from: ' + url);
+      try {
+        const resp = await fetch(url);
+        if(!resp.ok) throw new Error('Failed to fetch file: ' + resp.status);
+        const blob = await resp.blob();
+        const filename = suggestFilenameFromResponse(resp) || url.split('/').pop().split('?')[0] || 'tiktok_video.mp4';
+        saveBlob(blob, filename);
+        showPreviewBlob(blob);
+        log('Download saved as ' + filename);
+      } catch(err){
+        console.error(err);
+        log('Error fetching file URL: ' + (err.message || ''), true);
+      }
+    }
+
+    // Save blob to user's device
+    function saveBlob(blob, filename){
+      const a = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
+    }
+
+    // Show video preview in UI
+    function showPreviewBlob(blob){
+      const url = URL.createObjectURL(blob);
+      $preview.innerHTML = '';
+      const video = document.createElement('video');
+      video.controls = true; video.src = url; video.style.maxWidth = '100%'; video.style.maxHeight = '360px';
+      $preview.appendChild(video);
+    }
+
+    // Try to get filename from response headers
+    function suggestFilenameFromResponse(resp){
+      try{
+        const cd = resp.headers.get('content-disposition');
+        if(cd){
+          const m = cd.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/);
+          if(m){
+            return decodeURIComponent(m[1] || m[2]);
+          }
+        }
+      }catch(e){}
+      return null;
+    }
+
+    // Mock test: show a public sample video and allow download (no backend)
+    $mock.addEventListener('click', async ()=>{
+      log('Mock test: downloading sample video from public URL (no backend).');
+      // public sample (small) video for demo — replace if you want
+      const sample = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+      await fetchAndSaveFile(sample);
+    });
+
+    $download.addEventListener('click', downloadFromBackend);
+
+    $clear.addEventListener('click', ()=>{
+      $url.value = '';
+      log('Cleared');
+      $preview.innerHTML = '<div class="small">Video preview will appear here after backend returns the video or when using mock test.</div>';
+    });
+
+    // Small UX: paste link from clipboard (mobile friendly)
+    $url.addEventListener('paste', (e)=>{ setTimeout(()=>{ log('Link pasted. Click Download.'); }, 50); });
+
+    // Initial info
+    log('Ready. Paste TikTok link and set backend endpoint above. If you need backend code, reply "ready karo" to get backend files.');
+  </script>
+</body>
+</html>
